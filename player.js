@@ -18,11 +18,15 @@
   const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 годин
   const SOURCE_TIMEOUT = 8000;          // мс на одне джерело
 
-  // ---------- Токени джерел (безкоштовні) ----------
+  // ---------- Токени джерел ----------
   // Порожній токен => джерело просто вимкнене, решта працює як є. TODO: вписати свої.
-  // kodik:  https://kodikapi.com  -> токен у профілі (є укр. озвучки, далі рос.)
-  // alloha: https://alloha.tv     -> токен видає Telegram-бот (дає прямий m3u8)
+  // kodik (укр/рос озвучки): безкоштовна реєстрація на kodik-api.com -> токен у профілі.
+  //   ВАЖЛИВО: старий домен kodikapi.com більше не резолвиться (ENOTFOUND), живий лише kodik-api.com,
+  //   тому хости перебираються по черзі (див. KODIK_HOSTS).
+  // alloha (прямий m3u8): токен видають ЛИШЕ за заявкою через Telegram-бота -> тому необов'язковий.
   const KEYS = { kodik: '', alloha: '' };
+  // Хости Kodik API у порядку спроб (перший — робочий, другий лишений як страховка).
+  const KODIK_HOSTS = ['kodik-api.com', 'kodikapi.com'];
 
   // Пріоритет мов: uk -> ru -> решта (незмінний порядок усередині групи).
   const langText = (x) => String((x && (x.lang || x.label || x.name)) || '').toLowerCase();
@@ -107,12 +111,24 @@
     };
   });
 
-  // Kodik: укр/рос озвучки. Віддає список перекладів -> один iframe, стартує з української,
-  // а всередині плеєра Kodik є власний перемикач озвучок. TODO: перевірити поля на своєму токені.
-  const kodik = KEYS.kodik && fromJson(
-    'kodik',
-    `https://kodikapi.com/search?token=${KEYS.kodik}&imdb_id={imdb_id}&with_material_data=false`,
-    (j) => {
+  // Kodik: укр/рос озвучки. Тягне список перекладів -> окремий iframe на кожен переклад (укр перші),
+  // а всередині плеєра Kodik до того ж є власний перемикач озвучок.
+  // Хости перебираються по черзі, бо kodikapi.com помер. TODO: перевірити поля на своєму токені.
+  const kodik = KEYS.kodik && {
+    name: 'kodik',
+    async resolve(m, signal) {
+      if (!m.imdb_id) return null;
+      const q = `imdb_id=${encodeURIComponent(m.imdb_id)}&types=movie&with_material_data=false&token=${KEYS.kodik}`;
+      let j = null, err = null;
+      for (const host of KODIK_HOSTS) {
+        try {
+          const r = await fetch(`https://${host}/search?${q}`, { signal });
+          if (!r.ok) { const e = new Error(`${host}: HTTP ${r.status}`); e.http = true; if (!err || !err.http) err = e; continue; }
+          j = await r.json();
+          break;
+        } catch (e) { if (!err) err = e; }
+      }
+      if (!j) { if (err) throw err; return null; }
       const seen = new Set();
       const out = [];
       for (const r of (j && j.results) || []) {
@@ -123,9 +139,9 @@
       }
       return out.length ? sortByLang(out) : null;
     },
-  );
+  };
 
-  // Alloha: віддає ПРЯМИЙ m3u8 (=> власний плеєр + наше меню "Озвучка"). Наразі одна озвучка на запит.
+  // Alloha: віддає ПРЯМИЙ m3u8 (=> власний плеєр + наше меню "Озвучка"). Токен — за заявкою.
   // TODO: якщо у відповіді з'явиться список перекладів — скласти їх у поле audios.
   const alloha = KEYS.alloha && fromJson(
     'alloha',
@@ -137,7 +153,10 @@
     },
   );
 
-  // Далі — iframe-вбудови (чужі плеєрі). TODO: домени живуть недовго, перевіряй і додавай нові.
+  // TODO-кандидати на майбутнє: api.videasy.net (мультимовний, без токена) — з мого середовища
+  // таймаутить (>30 с), ймовірний шлях https://api.videasy.net/movie/{tmdb_id}/sources.
+  // Далі — iframe-вбудови (чужі плеєрі). Усі хости нижче перевірені як живі (HTTP 200).
+  // TODO: домени живуть недовго — перевіряй і додавай нові.
   const SOURCES = [
     kodik,
     alloha,
@@ -145,6 +164,7 @@
     archive,
     fromTemplate('2embed', 'https://www.2embed.cc/embed/{imdb_id}', { type: 'iframe' }),
     fromTemplate('vidsrc', 'https://vidsrc.to/embed/movie/{imdb_id}', { type: 'iframe' }),
+    fromTemplate('vsembed', 'https://vsembed.ru/embed/movie/{imdb_id}', { type: 'iframe' }),
     fromTemplate('multiembed', 'https://multiembed.mov/?video_id={imdb_id}&tmdb=1', { type: 'iframe' }),
     fromTemplate('vidlink-embed', 'https://vidlink.pro/movie/{tmdb_id}', { type: 'iframe' }),
   ].filter(Boolean);
