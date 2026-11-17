@@ -1,8 +1,10 @@
 // Звідки брати відео для кнопки "Дивитись".
 //
 // resolveStream(movie) повертає масив кандидатів (або null):
-//   { type: 'video',  url, format?, subtitles?, qualities? }   -> KZPlayer (player-ui.js)
-//   { type: 'iframe', url }                                    -> сторінка плеєра в iframe
+//   { type: 'video',  url, format?, subtitles?, qualities?, audios?, lang? }  -> KZPlayer (player-ui.js)
+//   { type: 'iframe', url, lang? }                                           -> сторінка плеєра в iframe
+// Кандидати з lang/audios сортуються: укр -> рос -> решта. Якщо є audios, url необов'язковий
+// (береться з першої озвучки), а у плеєрі з'являється меню "Озвучка".
 // app.js пробує кандидатів по черзі: спершу всі video (не заграло -> наступний), потім iframe,
 // а якщо нічого не вийшло, показує трейлер і легальні сервіси.
 //
