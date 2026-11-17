@@ -34,7 +34,7 @@
   const state = { tab: 'popular', query: '', genre: '', sort: 'popularity.desc', year: '', page: 1, totalPages: 1, loading: false, genres: {} };
 
   const el = {
-    grid: $('#grid'), status: $('#status'), heading: $('#heading'), sentinel: $('#sentinel'),
+    grid: $('#grid'), status: $('#status'), more: $('#more'), heading: $('#heading'), sentinel: $('#sentinel'),
     search: $('#search'), genre: $('#genre'), sort: $('#sort'), year: $('#year'), tabs: $('#tabs'),
     keyBox: $('#keyBox'), keyForm: $('#keyForm'), keyInput: $('#keyInput'),
     details: $('#details'), detailsBody: $('#detailsBody'), player: $('#player'), stage: $('#playerStage'),
@@ -115,6 +115,7 @@
       renderList(list, false);
       el.status.textContent = list.length ? '' : (state.tab === 'favorites' ? 'Тут поки порожньо. Додавай фільми зірочкою.' : 'Ти ще нічого не почав дивитись.');
       state.totalPages = 0;
+      updateMore();
       return;
     }
 
@@ -133,7 +134,13 @@
       el.status.textContent = e.message;
     } finally {
       state.loading = false;
+      updateMore();
     }
+  }
+
+  function updateMore() {
+    const listTab = !state.query && (state.tab === 'favorites' || state.tab === 'continue');
+    el.more.classList.toggle('hidden', listTab || !getKey() || state.page <= 1 || state.page > state.totalPages);
   }
 
   function showKeyBox(msg) {
@@ -327,6 +334,8 @@
     el.keyBox.classList.add('hidden');
     init();
   });
+
+  el.more.addEventListener('click', () => load(false));
 
   new IntersectionObserver((entries) => {
     if (entries[0].isIntersecting && state.page > 1 && !state.loading) load(false);
