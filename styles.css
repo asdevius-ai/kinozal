@@ -96,6 +96,53 @@ main { padding: 8px 20px 40px; }
 .provider img { width: 32px; height: 32px; border-radius: 6px; }
 .provider small { color: var(--muted); }
 
+/* ---------- KZPlayer ---------- */
+.kzp { position: relative; width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 10px; overflow: hidden; outline: none; user-select: none; color: #fff; }
+.kzp:fullscreen, .kzp:-webkit-full-screen { aspect-ratio: auto; width: 100%; height: 100%; border-radius: 0; }
+#playerStage .kzp video { width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; object-fit: contain; display: block; background: #000; }
+.kzp svg { width: 22px; height: 22px; fill: currentColor; display: block; }
+.kzp button { background: none; border: 0; color: inherit; cursor: pointer; padding: 6px; border-radius: 6px; }
+.kzp button:hover { background: rgba(255,255,255,.12); }
+.kzp-title { position: absolute; top: 0; left: 0; right: 0; padding: 14px 56px 30px 18px; font-weight: 600; background: linear-gradient(rgba(0,0,0,.7), transparent); transition: opacity .25s; pointer-events: none; }
+.kzp-big { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 76px; height: 76px; border-radius: 50% !important; background: rgba(229,72,77,.9) !important; display: none; place-items: center; }
+.kzp-big svg { width: 38px; height: 38px; margin-left: 4px; }
+.kzp.paused:not(.loading) .kzp-big { display: grid; }
+.kzp-spin { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border: 4px solid rgba(255,255,255,.25); border-top-color: var(--accent); border-radius: 50%; animation: kzp-spin .8s linear infinite; display: none; pointer-events: none; }
+.kzp.loading .kzp-spin { display: block; }
+@keyframes kzp-spin { to { transform: rotate(360deg); } }
+.kzp-err { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; background: rgba(0,0,0,.85); color: var(--muted); }
+.kzp-ctrl { position: absolute; left: 0; right: 0; bottom: 0; padding: 30px 12px 8px; background: linear-gradient(transparent, rgba(0,0,0,.85)); transition: opacity .25s; }
+.kzp.idle .kzp-ctrl, .kzp.idle .kzp-title { opacity: 0; }
+.kzp.idle { cursor: none; }
+.kzp-seek { position: relative; height: 16px; display: flex; align-items: center; cursor: pointer; }
+.kzp-seek::before, .kzp-buf, .kzp-fill { content: ""; position: absolute; left: 0; height: 4px; border-radius: 2px; pointer-events: none; }
+.kzp-seek::before { right: 0; background: rgba(255,255,255,.25); }
+.kzp-buf { background: rgba(255,255,255,.45); width: 0; }
+.kzp-fill { background: var(--accent); width: 0; }
+.kzp-seek:hover::before, .kzp-seek:hover .kzp-buf, .kzp-seek:hover .kzp-fill { height: 6px; }
+.kzp-range { position: absolute; inset: 0; width: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.kzp-tip { position: absolute; bottom: 18px; transform: translateX(-50%); background: rgba(0,0,0,.85); padding: 2px 6px; border-radius: 4px; font-size: 12px; display: none; pointer-events: none; }
+.kzp-seek:hover .kzp-tip { display: block; }
+.kzp-row { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+.kzp-sp { flex: 1; }
+.kzp-time { font-size: 13px; font-variant-numeric: tabular-nums; margin-left: 6px; white-space: nowrap; }
+.kzp-volwrap { display: flex; align-items: center; }
+.kzp-vol { width: 0; opacity: 0; transition: width .2s, opacity .2s; accent-color: var(--accent); }
+.kzp-volwrap:hover .kzp-vol, .kzp-vol:focus { width: 80px; opacity: 1; }
+.kzp-menu { position: relative; }
+.kzp-txt { font-size: 13px; font-weight: 600; min-width: 36px; }
+.kzp-menu ul { display: none; position: absolute; right: 0; bottom: 40px; margin: 0; padding: 6px; list-style: none; background: rgba(20,21,26,.96); border-radius: 8px; min-width: 130px; max-height: 260px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+.kzp-menu.open ul { display: block; }
+.kzp-menu li button { width: 100%; text-align: left; font-size: 13px; padding: 7px 10px; white-space: nowrap; }
+.kzp-menu li button.on { color: var(--accent-2); font-weight: 700; }
+.kzp-menu li button.on::before { content: "✓ "; }
+.kzp video::cue { background: rgba(0,0,0,.7); font-size: 1.1em; }
+
+@media (max-width: 700px) {
+  .kzp-volwrap .kzp-vol, [data-k="back"], [data-k="fwd"] { display: none; }
+  .kzp-time { font-size: 12px; }
+}
+
 @media (max-width: 700px) {
   .top, .tabs, main { padding-left: 16px; padding-right: 16px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }

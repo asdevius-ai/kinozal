@@ -222,33 +222,61 @@
   }
 
   // ---------- Player ----------
+  let kzp = null;      // поточний KZPlayer
+  let watchToken = 0;  // щоб старі async-відповіді не перемальовували плеєр
+
+  function unmountPlayer() {
+    if (!kzp) return;
+    try { kzp.unmount(); } catch (e) { console.error(e); }
+    kzp = null;
+  }
+
   async function watch(m) {
+    const token = ++watchToken;
+    unmountPlayer();
     el.player.classList.remove('hidden');
     el.stage.innerHTML = '<div class="status">Шукаю джерело…</div>';
-    let src = null;
+    let res = null;
     try {
-      if (typeof window.resolveStream === 'function') src = await window.resolveStream(m);
+      if (typeof window.resolveStream === 'function') res = await window.resolveStream(m);
     } catch (e) {
       console.error('resolveStream error', e);
     }
+    if (token !== watchToken) return;
+    // resolveStream може повернути один кандидат або масив. Спершу всі video, потім iframe.
+    const list = (Array.isArray(res) ? res : [res])
+      .filter((s) => s && s.url && (s.type === 'video' || s.type === 'iframe'))
+      .sort((a, b) => (a.type === 'video' ? 0 : 1) - (b.type === 'video' ? 0 : 1));
+    playCandidate(m, list, 0, token);
+  }
 
-    if (src && src.type === 'video' && src.url) {
-      el.stage.innerHTML = `<video controls autoplay playsinline src="${esc(src.url)}" ${m.backdrop_path ? `poster="${IMG}w1280${m.backdrop_path}"` : ''}></video>`;
-      const v = $('video', el.stage);
+  function playCandidate(m, list, i, token) {
+    if (token !== watchToken) return;
+    unmountPlayer();
+    const src = list[i];
+    if (!src) { renderNoSource(m); return; }
+
+    if (src.type === 'video') {
+      if (!window.KZPlayer) { console.warn('[player] KZPlayer не завантажився'); playCandidate(m, list, i + 1, token); return; }
       const saved = progress()[m.id];
-      v.addEventListener('loadedmetadata', () => { if (saved && saved.time > 5) v.currentTime = saved.time; }, { once: true });
       let last = 0;
-      v.addEventListener('timeupdate', () => { if (Math.abs(v.currentTime - last) > 5) { last = v.currentTime; saveProgress(m, v.currentTime, v.duration); } });
-      v.addEventListener('pause', () => saveProgress(m, v.currentTime, v.duration));
-      v.addEventListener('ended', () => saveProgress(m, v.duration, v.duration));
+      kzp = window.KZPlayer.mount(el.stage, src, m, {
+        startAt: saved ? saved.time : 0,
+        poster: m.backdrop_path ? `${IMG}w1280${m.backdrop_path}` : '',
+        onTime: (t, d) => { if (Math.abs(t - last) > 5) { last = t; saveProgress(m, t, d); } },
+        onPause: (t, d) => saveProgress(m, t, d),
+        onEnded: (d) => saveProgress(m, d, d),
+        onError: (reason) => {
+          console.warn(`[player] ${src.source || 'джерело'} не відтворилось:`, reason, src.url);
+          if (window.resolveStream && typeof window.resolveStream.invalidate === 'function') window.resolveStream.invalidate(m, src);
+          playCandidate(m, list, i + 1, token);
+        },
+      });
       return;
     }
-    if (src && src.type === 'iframe' && src.url) {
-      el.stage.innerHTML = `<iframe src="${esc(src.url)}" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
-      saveProgress(m, 1, 0);
-      return;
-    }
-    renderNoSource(m);
+
+    el.stage.innerHTML = `<iframe src="${esc(src.url)}" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
+    saveProgress(m, 1, 0);
   }
 
   function renderNoSource(m) {
@@ -270,11 +298,15 @@
   function playTrailer(m) {
     const t = trailerOf(m);
     if (!t) return;
+    watchToken++;
+    unmountPlayer();
     el.player.classList.remove('hidden');
     el.stage.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${esc(t.key)}?autoplay=1" allow="autoplay; fullscreen" allowfullscreen></iframe>`;
   }
 
   function closePlayer() {
+    watchToken++;
+    unmountPlayer();
     el.player.classList.add('hidden');
     el.stage.innerHTML = '';
     if (current) renderDetails(current);
