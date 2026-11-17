@@ -3,10 +3,11 @@
 //   const p = KZPlayer.mount(container, source, movie, opts)
 //   p.unmount()
 //
-// source: рядок-URL або { url, format?, subtitles?, qualities?, live? }
+// source: рядок-URL або { url, format?, subtitles?, qualities?, audios?, live? }
 //   format:    'hls' | 'mpegts' | 'flv' | 'native' (якщо не вказано, визначається з розширення URL)
 //   subtitles: [{ label, lang, url, default? }]  (.vtt або .srt)
 //   qualities: [{ label, url }]                  (для mp4 без HLS: ручне перемикання якості)
+//   audios:    [{ label, lang, url, default? }]  (озвучки; пріоритет uk -> ru -> перша)
 // opts: { startAt, poster, timeout, onTime(t, d), onPause(t, d), onEnded(d), onError(reason) }
 //   Якщо onError не передано, помилка показується прямо в плеєрі.
 
@@ -89,6 +90,7 @@
             <span class="kzp-time">0:00 / 0:00</span>
             <span class="kzp-sp"></span>
             <div class="kzp-menu hidden" data-m="subs"><button type="button" class="kzp-txt">CC</button><ul></ul></div>
+            <div class="kzp-menu hidden" data-m="audio"><button type="button" class="kzp-txt">Озвучка</button><ul></ul></div>
             <div class="kzp-menu hidden" data-m="quality"><button type="button" class="kzp-txt">Авто</button><ul></ul></div>
             <div class="kzp-menu" data-m="speed"><button type="button" class="kzp-txt">1×</button><ul></ul></div>
             <button type="button" data-k="fs" aria-label="На весь екран">${ICON.fs}</button>
@@ -103,6 +105,23 @@
     const vol = q('.kzp-vol'), timeEl = q('.kzp-time');
     const btn = (k) => q(`[data-k="${k}"]`);
     if (opts.poster) v.poster = opts.poster;
+
+    // ---------- озвучки ----------
+    // Варіанти: source.audios (окремі посилання на ту саму дорожку різними мовами)
+    // або доріжки всередині HLS (EXT-X-MEDIA). Пріоритет: українська -> російська -> перша.
+    const AUDIOS = (src.audios || []).filter((a) => a && a.url);
+    const aText = (a) => String((a && (a.lang || a.label || a.name)) || '').toLowerCase();
+    const aRank = (a) => (/^(uk|ua)|укр|укра/.test(aText(a)) ? 0 : /^(ru|rus)|рос|рус/.test(aText(a)) ? 1 : 2);
+    const prefLang = ls.get('kz_audio_lang', -1); // запам'ятовуємо мову між фільмами
+    let audioIndex = 0, audioPicked = false;
+    if (AUDIOS.length) {
+      const byPref = prefLang >= 0 ? AUDIOS.findIndex((a) => aRank(a) === prefLang) : -1;
+      const byDef = AUDIOS.findIndex((a) => a.default);
+      let best = 0;
+      AUDIOS.forEach((a, i) => { if (aRank(a) < aRank(AUDIOS[best])) best = i; });
+      audioIndex = byPref >= 0 ? byPref : byDef >= 0 ? byDef : best;
+    }
+    const startUrl = AUDIOS.length ? AUDIOS[audioIndex].url : src.url;
 
     // ---------- помилки ----------
     function fail(reason) {
@@ -134,10 +153,11 @@
       });
       hls.on(Hls.Events.MANIFEST_PARSED, buildQuality);
       hls.on(Hls.Events.LEVEL_SWITCHED, buildQuality);
-      hls.loadSource(src.url);
+      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, buildAudio);
+      hls.loadSource(startUrl);
       hls.attachMedia(v);
     } else if ((kind === 'mpegts' || kind === 'flv') && window.mpegts && window.mpegts.isSupported()) {
-      const mp = window.mpegts.createPlayer({ type: kind, isLive: !!src.live, url: src.url });
+      const mp = window.mpegts.createPlayer({ type: kind, isLive: !!src.live, url: startUrl });
       engine = { kind, mp };
       mp.on(window.mpegts.Events.ERROR, (type, detail) => fail(`mpegts: ${type} ${detail}`));
       mp.attachMediaElement(v);
@@ -148,7 +168,7 @@
     } else if ((kind === 'mpegts' || kind === 'flv') && !window.mpegts) {
       fail('mpegts.js не завантажився');
     } else {
-      const first = src.qualities && src.qualities.length ? src.qualities[0].url : src.url;
+      const first = src.qualities && src.qualities.length ? src.qualities[0].url : startUrl;
       v.src = first;
       on(v, 'error', () => fail('video: ' + (v.error ? v.error.code : '')));
     }
@@ -210,6 +230,44 @@
       }
     }
 
+    // ---------- меню озвучок ----------
+    function switchAudio(i) {
+      if (i === audioIndex || !AUDIOS[i]) return;
+      audioIndex = i;
+      ls.set('kz_audio_lang', aRank(AUDIOS[i]));
+      const t = v.currentTime, paused = v.paused;
+      const restore = () => { try { v.currentTime = t; } catch { /* ignore */ } if (!paused) v.play().catch(() => {}); };
+      if (engine.hls) { engine.hls.once(window.Hls.Events.MANIFEST_PARSED, restore); engine.hls.loadSource(AUDIOS[i].url); }
+      else { v.src = AUDIOS[i].url; v.addEventListener('loadedmetadata', restore, { once: true }); }
+      root.classList.add('loading');
+      buildAudio();
+    }
+
+    function buildAudio() {
+      // 1) окремі посилання-озвучки з джерела
+      if (AUDIOS.length > 1) {
+        const label = (a) => a.label || a.lang || 'Доріжка';
+        setMenu('audio', AUDIOS.map((a, i) => ({ label: label(a), value: i })), audioIndex, label(AUDIOS[audioIndex]), (val) => switchAudio(Number(val)));
+        return;
+      }
+      // 2) доріжки всередині HLS (EXT-X-MEDIA)
+      const tracks = engine.hls && engine.hls.audioTracks;
+      if (tracks && tracks.length > 1) {
+        const hls = engine.hls;
+        const name = (t, i) => (t && (t.name || t.lang)) || `Доріжка ${i + 1}`;
+        if (!audioPicked || !(hls.audioTrack >= 0)) {
+          audioPicked = true;
+          let best = 0;
+          tracks.forEach((t, i) => { if (aRank(t) < aRank(tracks[best])) best = i; });
+          hls.audioTrack = best;
+        }
+        const cur = hls.audioTrack;
+        setMenu('audio', tracks.map((t, i) => ({ label: name(t, i), value: i })), cur, name(tracks[cur], cur), (val) => { hls.audioTrack = Number(val); buildAudio(); });
+        return;
+      }
+      setMenu('audio', [], 0, 'Озвучка', () => {});
+    }
+
     function subTracks() { return [...v.textTracks].filter((t) => t.kind === 'subtitles' || t.kind === 'captions'); }
     function pickSub(val) {
       const idx = Number(val);
@@ -255,6 +313,7 @@
       v.play().catch(() => root.classList.add('paused'));
       buildQuality();
       buildSubs();
+      buildAudio();
     });
     on(v, 'play', () => { root.classList.remove('paused'); btn('play').innerHTML = ICON.pause; poke(); });
     on(v, 'pause', () => {
